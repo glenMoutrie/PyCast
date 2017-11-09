@@ -1,5 +1,38 @@
 import numpy as np
 
+def stl(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,
+	nsjump,ntjump, nljump, ni, no, season,trend, work):
+	
+	userw = False
+
+
+# Calculate the robustness weights, uses psort
+def stlrwt(y, n, fit, rw):
+	
+	rw = np.abs(y - fit)
+
+	mid = [n/2 + 1, None]
+	mid[1] = n - mid[0] + 1
+
+	psort(y, n, mid, 2)
+
+	cmad = 3.*(rw[mid[0]] + rw[mid[1]])
+
+	c_9 = 0.999*cmad
+	c_1 = 0.001*cmad
+
+	for i in range(n):
+		r = np.abs(y[i] - fit[i])
+		if r < c_1:
+			rw[i] = 1.
+		elif r < c_9:
+			rw[i] = (1. - (r/cmad)**2)**2
+		else:
+			rw[i] = 0.
+
+
+
+
 # Here psort is called such that psort(rw, n, mid, 2), where rw is the 
 # absolute square loss (rw = abs(y - fit)), n is the size of the y vector, mid
 # is a integer array of length two where mid(1) = n/2+1, mid(2) = n - mid(1) + 1.
@@ -59,16 +92,16 @@ def psort(a, n, ind, ni):
 
 			# 10
 			# Perform an initial shuffle
-			k = i
+
+
 			ij = (i + j)/2
 			t = a[ij]
 
-			if (a[i] > t):
+			if a[i] > t:
 				a[ij] = a[i]
 				a[i] = t
 				t = a[ij]
 
-			l = j
 
 			if (a[j] < t):
 				a[ij] = a[j]
@@ -80,23 +113,30 @@ def psort(a, n, ind, ni):
 					a[i] = t
 					t = a[ij]
 
+			# Do a full pass until a value less than t is found
+			k = i
+			l = j
 
 			# 181 # TODO check the meaning of continue here
-			l = l - 1
-			if(a[l] < t):
+	
+			while a[l] < t:
+				l -= 1
 				tt = a[l]
 				# 186 # continue
-				k = k + 1
-				if not a[k] <= t:
+				while not a[k] <= t:
 					# go to 186
+					k += 1
 				if k > l :
+					break
 					# go to 183
-
 				a[l] = a[k]
 				a[k] = tt
+					
 
 			# goto 181
 
+			# Now go through and store the indexes before
+			# iterating around the outer loop again
 			#183 # continue
 			indl[m] = jl
 			indu[m] = ju
@@ -110,8 +150,10 @@ def psort(a, n, ind, ni):
 				# 193 continue
 				if jl > ju:
 					# goto 166 RETURN TO OUTER LOOP
-				if ind[ju] > j:
+				while ind[ju] > j:
 					ju -= 1
+					if jl > ju:
+						# goto 166 RETURN TO OUTER LOOP
 					# go to 193
 				indl[p] = ju + 1
 			else :
@@ -121,13 +163,14 @@ def psort(a, n, ind, ni):
 
 				# 200 continue
 				if (jl > ju):
-					# goto 166
+					# goto 166 RETURN TO OUTER LOOP
 				if (ind[jl] < i)
 					jl += 1
 					# goto 200
 				indu[p] = jl - 1
 
 		# end of while loop
+		
 		# 174 continue
 		if not i == 1:
 			i -=1
@@ -153,4 +196,5 @@ def psort(a, n, ind, ni):
 
 	# goto 161
 	# end outer loop
+	return a
 
