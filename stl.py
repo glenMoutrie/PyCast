@@ -1,6 +1,7 @@
 import numpy
-
-
+from matplotlib import pyplot
+from math import ceil
+from stl_helpers import *
 
 # double
 # precision
@@ -15,168 +16,221 @@ import numpy
 # This is the workhorse function that does the bulk of the work
 def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,season,trend,work):
 
-	print "INSIDE STLSTP"
+
+	# (For the below assume the timeseries goes from 1 to N
+	# WORK BREAKDOWN
+	# Work0: Low Pass filter of size N
+	# Work1: Starts off as y, then is steadily detrended Y_v
+	# Work2: Cycle subseries of size N + 2 * np. Time index is -np + 1 to N + np
+	# work3: Stores the weights from the cycle subseries smoothing
+
+
 	# Inner loop from Cleveland et al.
-	for j in range(1,ni):
-		for i in range(1,n):
-			work[i,1] = y[i] - trend[i]
+	for j in range(0,ni):
 
-		work[1, 2], work[1, 3], work[1, 4], work[1, 5] = stlss(work[1,1], n, np, ns, isdeg, nsjump, userw, rw, work[1,2], work[1,3], work[1,4], work[1,5],season)
-		work[1,3], work[1,1] = stlfts(work[1,2], n + 2 * np, np, work[1,3], work[1,1])
-		work[1,1], work[1,5] = stless(work[1,3], n, nl, ildeg, nljump, False, work[1,4], work[1,1], work[1,5])
+		# Detrend
+		for i in range(0,n):
+			work[1][i] = y[i] - trend[i]
 
-		for i in range(1,n):
-			season[i] = work[np + i, 2] - work[i,1]
+		# Cycle subseries smoothing
+		work[2], work[3], work[4], season = stlss(work[0], n, np, ns, isdeg, nsjump, userw, rw,
+												   season, work[1], work[2], work[3], work[4])
 
-		for i in range(1,n):
-			work[i,1] = y[i] - season[i]
+		# Low-pass filter of smoothed cycle subseries
+		# 1) Remove moving average components first using stlfts
+		# 2) Removing an additional LOESS component with d = 1, q = n(l)
+		work[2], work[0] = stlfts(work[1], n + 2 * np, np, work[2], work[0])
+		work[0], work[4] = stless(work[2], n, nl, ildeg, nljump, False, work[3], work[0], work[4])
 
-		trend, work[1,3] = stless(work[1,1], n, nt, itdeg, ntjump,userw,rw,trend,work[1,3])
+		# Detrending of smoothed cycle series
+		for i in range(0,n):
+			season[i] = work[1][np + i] - work[0][i]
+
+		# Deseasonalise the time series
+		for i in range(0,n):
+			work[0][i] = y[i] - season[i]
+
+		# Trend smoothing using LOESS q = n(t) d = 1
+		trend, work[2] = stless(work[0], n, nt, itdeg, ntjump,userw,rw,trend,work[2])
 
 	return season, trend, work
 
 
-# Example call fo r stlss
+# CYCLE-SUBSERIES SMOOTHING
+#
+# Example call for stlss
 # stlss(work(1,1),n,np,ns,isdeg,nsjump,userw,rw,work(1,2),
 #      &        work(1,3),work(1,4),work(1,5),season)
-def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4):
+# stlss(work[0], n, np, ns, isdeg, nsjump, userw, rw,
+# 												   work[1], work[2], work[3], work[4],season)
+#
+# y: time series
+# n: time series lenght
+# np: season
+# ns: seasonal span or s_window default is n * 10 + 1
+# isdeg: seasonal smoother
+# nsjump:
+# rw:
+#
+# OK is not set in Fortran code explicitly, but a boolean value automatically takes on a value of false
+def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = False):
+
 	if np < 1:
 		return
 
-	for j in range(1, np):
+	# Loop over each time period of the season. For example, if the data is monthly and the seasonal length (np)
+	# is 12 then this is effectively looping over each month
+	for j in range(0, np):
+
 		k = (n - j)/np + 1
 
-		for i in range(1,k):
-			work1[i] = y[(i - 1)*np + j]
+		for i in range(0,k):
+			# Each i is one seasonal period
+			# Work one stores the y value for each time period of the season across all seasons.
+			# For example every y for september
+			work1[i] = y[i * np + j]
 
 		if userw:
-			for i in range(1, k):
-				work3[i] = rw[(i - 1) * np + j]
+			for i in range(0, k):
+				work3[i] = rw[i * np + j - 1]
 
-		work2[2], work4 = stless(work1, k, ns, isdeg, nsjump, userw, work3, work2[2], work4)
+		work2, work4 = stless(work1, k, ns, isdeg, nsjump, userw, work3, work2, work4)
 
 		xs = 0
 
 		nright = min(ns, k)
 
-		stlest(work1, k, ns, isdeg, xs, work2[1], 1, nright, work4, userw, work3, ok)
+		work2[0], work4 = stlest(work1, k, ns, isdeg, xs, work2[0], 1, nright, work4, userw, work3, ok)
 
 		if not ok:
-			work2[1] = work2[2]
+			work2[0] = work2[1]
 
 		xs = k + 1
 
-		nleft = max(1, k - ns + 1)
+		nleft = max(0, k - ns)
 
-		stlest(work1, k, ns, isdeg, xs, work2[k + 2], nleft, k, work4, userw, work3, ok)
+		work2[k + 2], work4 = stlest(work1, k, ns, isdeg, xs, work2[k + 2], nleft, k, work4, userw, work3, ok)
 
 		if not ok:
 			work2[k + 2] = work2[k + 1]
 
-		for m in range(1, k + 2):
-			season[(m-1) * np + j] = work2[m]
+		for m in range(0, k + 1):
+			season[(m-1) * np + j - 1] = work2[m]
 
-	return work1, work2, work3, work4
-
-def stlfts(x, n, np, trend, work):
-	trend = stlma(x, n, np, trend)
-	work = stlma(trend, n-np + 1, np , work)
-	trend = stlma(work, n-2*np+2, 3, trend)
-	return trend, work
+	return work2, work3, work4, season
 
 
-#  Simple function to calculate the moving average of a function
-def stlma(x, n, len, ave):
-	newn = n - len + 1
-	flen = len * 1.
-	v = 0.
+# Call from stlss:
+# stless(work1, k, ns, isdeg, nsjump, userw, work3, work2, work4)
 
-	for i in range(1, len):
-		v += x[i]
+# y: object to estimate loess
+# n: size of object
+# len: length of local area
+# ideg: number of degrees for fit, either 1 or 2
+# njump:
+# rw: weights
+# ys: updated fit
+def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 
-	ave[1] = v/flen
-
-	if newn > 1:
-		k = len
-		m = 0
-		for j in range(2, newn):
-			k += 1
-			m += 1
-			v = v - x[m] + x[k]
-			ave[j] = v/flen
-
-	return ave
-
-print stlma(numpy.linspace(1,10,10), 10, 3, numpy.zeros(10))
-
-
-def stless(y,n,len,ideg,njump, userw,rw,ys,res):
-
+	# If only two observations set work2 to be the averages
 	if n < 2:
-		ys[1] = y[1]
+		ys[0] = y[0]
 		return
 
-	newnj = min(njump, n - 1)
+	newnj = int(min(njump, n - 1))
 
+	# If the local area length is longer than the number of
+	# observations
 	if len >= n:
 		nleft = 1
 		nright = n
 
-		# TODO check the four lines of code below, they correspond to lines 92-96, where does 'ok' get set?
-		for i in range(1,n,newnj):
-			ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+		# Estimate parameters and fit for the full range of weights with a full span
+		for i in range(0,n,newnj):
+			ys[i], res = stlest(y, n, len, ideg,i, ys[i], nleft, nright, res, userw, rw, ok)
 			if not ok:
 				ys[i] = y[i]
 	else:
-		nsh = (len + 1) * 0.5
 
-		for i in range(1, n, newnj):
-			if i < nsh:
-				nleft = 1
-				nright = len
-			elif i >= n - nsh + 1:
-				nleft = n - len + 1
-				nright = n
-			else:
-				nleft = i - nsh + 1
-				nright = len + i - nsh
+		if newnj == 1:
+			nsh = (len + 1)*0.5
+			nleft = 0
+			nright = len
 
-			ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+			for i in range(0,n):
+				if i > nsh and not nright == n:
+					nleft += 1
+					nright += 1
 
-			if not ok:
-				ys[i] = y[i]
+				ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+				if not ok:
+					ys[i] = y[i]
+
+		else:
+			nsh = (len + 1) * 0.5
+
+			for i in range(0, n, int(newnj)):
+				if i < nsh:
+					nleft = 0
+					nright = len
+				elif i >= n - nsh + 1:
+					nleft = n - len + 1
+					nright = n
+				else:
+					nleft = i - nsh + 1
+					nright = len + i - nsh
+
+				ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+
+				if not ok:
+					ys[i] = y[i]
 
 
 	if not newnj == 1:
-		for i in range(1, n - newnj, newnj):
+		for i in range(0, n - newnj, newnj):
 			delta = (ys[i + newnj] - ys[i])/newnj
 
-			for j in range(i + 1, i + newnj - 1):
+			for j in range(i, i + newnj):
 				ys[j] = ys[i] + delta * (j - i)
 
-		k = ((n - 1)/newnj)*newnj + 1
+		k = ((n - 1)/newnj)*newnj
 
 		if not k == n:
-			ys, res = stlest(y, n, len, ideg, n, ys, nleft, nright, res, userw, rw, ok)
+			ys[i], res = stlest(y, n, len, ideg, n, ys[i], nleft, nright, res, userw, rw, ok)
 
 			if not ok:
-				ys[n] = y[n]
+				ys[n - 1] = y[n - 1]
 
 			if not k == n - 1:
-				delta = (ys[n] - ys[k])/(n - k)
+				delta = (ys[n - 1] - ys[k])/(n - k)
 
-				for j in range(k + 1, n - 1):
+				for j in range(k, n):
 					ys[j] = ys[k] + delta * (j - k)
 
 	return ys, res
 
+# WEIGHT CALCULATOR AND LOESS ESTIMATOR
+#
+# Only does this for a single point, given the parameters of how far the
+# next largest values are. Some heavy calculations need to be made first for the indexing.
+#
 # Altered inputs
 # ys and w
 # n: length of y vector
+# len: length of season period
+# ideg: number of degrees
+# nleft, nright; number of observations to the left and right to consider
+# w: weights
+#
+# Call from stless
+# stlest(y, n, len, ideg,i, ys[i], nleft, nright, res, userw, rw, ok)
 def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 
-	range = n - 1.
+	nleft = int(nleft) - 1
+	nright = int(nright)
+	y_range = n - 1.
 
+	# Referenced in paper as lambda_q(x), can be achievd using indexes
 	h = max(xs - nleft, nright - xs)
 
 	if len > n:
@@ -185,19 +239,23 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 	h9 = 0.999 * h
 	h1 = 0.001 * h
 
-	a = 0.
+	a = 0.0
 
+
+	# Calculate the local weights for each point around the focal area
 	for j in range(nleft, nright):
+
+		# Referenced in paper as |x_i - x|
 		r = abs(j - xs)
 
 		# Calculate the tricube weight function
 		# W(u) = (1-u^3)^3 for 0 <= u < 1
 		# W(u) = 0 for u >= 1
-		if r < h9:
-			if r < h1:
-				w[j] = 1.
+		if r <= h9:
+			if r <= h1:
+				w[j] = 1.0
 			else:
-				w[j] = (1. - (r/h) ** 3) ** 3
+				w[j] = (1.0 - (r/h) ** 3) ** 3
 
 			if userw:
 				w[j] = rw[j] * w[j]
@@ -208,8 +266,10 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 			w[j] = 0.
 
 
+	# Only proceed if the total weights are greater than zero
 	ok = a > 0.
 
+	# I believe that this is where the LOESS fit is actually estimated.
 	if ok:
 		for j in range(nleft, nright):
 			w[j] = w[j]/a
@@ -218,7 +278,7 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 			a = 0.
 
 			for j in range(nleft, nright):
-				a += a[j]*j
+				a += w[j] * j
 
 			b = xs - a
 			c = 0.
@@ -226,17 +286,25 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 			for j in range(nleft, nright):
 				c += w[j]*(j - a)**2
 
-			if c ** 0.5 > 0.001*range:
+			if c ** 0.5 > 0.001 * y_range:
 				b = b/c
 
 				for j in range(nleft, nright):
 					w[j] = w[j] * (b * (j - a) + 1)
 
-			ys = 0
+			ys = 0.
 			for j in range(nleft, nright):
-				ys += ys + w[j] + y[j]
-
+				ys += w[j] * y[j]
 	return ys, w
+
+
+def stlfts(x, n, np, trend, work):
+	trend = stlma(x, n, np, trend)
+	work = stlma(trend, n-np + 1, np , work)
+	trend = stlma(work, n-(2*np)+2, 3, trend)
+	return trend, work
+
+
 
 # Calculate the robustness weights, uses psort
 # Robustness Weights
@@ -252,7 +320,8 @@ def stlrwt(y, n, fit, rw):
 
 	# TODO use psort instead of .sort
 	# psort(y, n, mid, 2)
-	y.sort()
+	rw = rw.copy()
+	rw.sort()
 
 	# 6((midpoint_1 + midpoint_2)/2)
 	cmad = 3.*(rw[mid[0]] + rw[mid[1]])
@@ -274,178 +343,6 @@ def stlrwt(y, n, fit, rw):
 print stlrwt(numpy.linspace(1,10,10),10,numpy.linspace(11,20,10),numpy.zeros(10))
 
 
-# Here psort is called such that psort(rw, n, mid, 2), where rw is the 
-# absolute square loss (rw = abs(y - fit)), n is the size of the y vector, mid
-# is a integer array of length two where mid(1) = n/2+1, mid(2) = n - mid(1) + 1.
-#
-# The subroutine is effectively void in the Fortran implementation
-#
-# Example call:
-# psort(a[4,2,1,7,5,9,4,5], 8, [5,4], 2)
-def psort(a, n, ind, ni):
-
-	# Nothing to sort in this instance
-	if n < 0 or ni < 0:
-		return
-
-	# Array should at least be of size two
-	if n < 2 or ni == 0: 
-		return
-
-	# Index references
-	jl = 1
-	ju = ni
-
-	# Arrays of index references
-	# TODO check usage of psort, append may need to be used instead of this
-	# approach
-	il = iu = indl = indu = [None] * 16
-
-	# Arrays
-	indl[1] = 1
-	indu[1] = [ni]
-
-	# Index references
-	i = 1
-	j = n
-	m = 1
-
-	# Outer loop
-	# 161
-	while(i < j):
-		# go to 10
-
-		# 166 OUTER LOOP START
-		while not jl < ju :
-
-			m = m - 1
-			if (m == 0):
-				return
-			i = il[m]
-			j = iu[m]
-			jl = indl[m]
-			ju = indu[m]
-			# go to go to 166
-
-		# 173 INNER LOOP START
-		# This is akin to a while loop (while(j-i > 10))
-		while j - i > 10:
-			 # go to 174
-
-			# 10
-			# Perform an initial shuffle
-
-
-			ij = (i + j)/2
-			t = a[ij]
-
-			if a[i] > t:
-				a[ij] = a[i]
-				a[i] = t
-				t = a[ij]
-
-
-			if (a[j] < t):
-				a[ij] = a[j]
-				a[j] = t
-				t = a[ij]
-
-				if a[i] > t:
-					a[ij] = a[i]
-					a[i] = t
-					t = a[ij]
-
-			# Do a full pass until a value less than t is found
-			k = i
-			l = j
-
-			# 181 # TODO check the meaning of continue here
-	
-			while a[l] < t:
-				l -= 1
-				tt = a[l]
-				# 186 # continue
-				while not a[k] <= t:
-					# go to 186
-					k += 1
-				if k > l :
-					break
-					# go to 183
-				a[l] = a[k]
-				a[k] = tt
-					
-
-			# goto 181
-
-			# Now go through and store the indexes before
-			# iterating around the outer loop again
-			#183 # continue
-			indl[m] = jl
-			indu[m] = ju
-			p = m
-			m += 1
-			if l - i <= j - k:
-				il[p] = k
-				iu[p] = j
-				j = l
-
-				# 193 continue
-				if jl > ju:
-					# TODO Remove all the pass tags, this was done to remove compile time errors
-					pass
-					# goto 166 RETURN TO OUTER LOOP
-				while ind[ju] > j:
-					ju -= 1
-					if jl > ju:
-						pass
-						# goto 166 RETURN TO OUTER LOOP
-					# go to 193
-				indl[p] = ju + 1
-			else :
-				il[p] = i
-				iu[p] = l
-				i = k
-
-				# 200 continue
-				if (jl > ju):
-					pass
-					# goto 166 RETURN TO OUTER LOOP
-				if (ind[jl] < i):
-					jl += 1
-					# goto 200
-				indu[p] = jl - 1
-
-		# end of while loop
-		
-		# 174 continue
-		if not i == 1:
-			i -=1
-			# 209 continue
-			i +=1
-
-			if i == j:
-				pass
-				# goto 166 RETURN TO OUTER LOOP
-			t = a[i + 1]
-
-			if a[i] > t:
-				k = i
-				# comment saying repeat
-				# 216 continue
-				a[k+1] = a[k]
-				k -= 1
-
-				if not t >= a[k]:
-					#goto 216
-					#until t >= a[k]
-					a[k + 1] = t
-				# goto 209
-
-	# goto 161
-	# end outer loop
-	return a
-
-
 # STL converted from R stats procedure in FORTRAN
 #
 # The aim of this piece of work is to understand the inner workings of STL, and be able
@@ -461,7 +358,7 @@ def stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 
 	rw = numpy.zeros(n)
 
-	userw = False
+	userw = True
 
 	trend = numpy.zeros(n)
 
@@ -475,7 +372,6 @@ def stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 
 	newnp = max(2, np)
 
-	print "INSIDE stl",  no
 
 	# Outer loop in Cleveland et al.
 	for k in range(0, no):
@@ -486,9 +382,9 @@ def stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 		# TODO run through and check that n + 1 or 1 is replaced with 0 is used where needed in for loops
 		# as indexing in Fortran is one indexed...
 		for i in range(0, n):
-			work[i, 1] = trend[i] + season[i]
+			work[0][i] = trend[i] + season[i]
 
-		rw = stlrwt(y, n, work[1, 1], rw)
+		rw = stlrwt(y, n, work[0][0:n], rw)
 
 		userw = True
 
@@ -524,7 +420,7 @@ def STL(x, period, s_window = None, s_degree = 0, t_window = None, t_degree = 1,
 		s_degree = 0
 
 	if t_window is None:
-		t_window = nextOdd(round((1.5 * period / (1- 1.5/s_window)) + 1))
+		t_window = nextOdd(ceil((1.5 * period / (1- 1.5/s_window))))
 
 	if l_window is None:
 		l_window = nextOdd(period)
@@ -534,13 +430,13 @@ def STL(x, period, s_window = None, s_degree = 0, t_window = None, t_degree = 1,
 		l_degree = t_degree
 
 	if s_jump is None:
-		s_jump = round(s_window + 1)
+		s_jump = ceil(s_window*1./10)
 
 	if t_jump is None:
-		t_jump = round((t_window/10) + 1)
+		t_jump = ceil((t_window*1./10))
 
 	if l_jump is None:
-		l_jump = round((l_window/10) + 1)
+		l_jump = ceil((l_window*1./10))
 
 	# Smart defaults for inner and outer loop settings
 	if inner is None:
@@ -553,6 +449,7 @@ def STL(x, period, s_window = None, s_degree = 0, t_window = None, t_degree = 1,
 		if robust:
 			outer = 15
 		else:
+			# Has to be 1 not 0 as in R due to looping format in Fortran
 			outer = 1
 
 	if len(x.shape) > 1:
@@ -568,14 +465,21 @@ def STL(x, period, s_window = None, s_degree = 0, t_window = None, t_degree = 1,
 	t_degree = degCheck(t_degree)
 	l_degree = degCheck(l_degree)
 
-	print outer, inner
+	output = "\nSTL PARAMETERS:\n"
+	output += "n: " + str(n) + "\t\t\t period: " + str(period) + "\n"
+	output += "s_window: " + str(s_window) + "\t t_window: " + str(t_window) + "\t l_window: " + str(l_window) + "\n"
+	output += "s_degree: " + str(s_degree) + "\t\t t_degree: " + str(t_degree) + "\t l_degree: " + str(l_degree) + "\n"
+	output += "s_jump: " + str(s_jump) + "\t t_jump: " + str(t_jump) + "\t l_jump: " + str(l_jump) + "\n"
+	output += "inner: " + str(inner) + "\t\t outer: " + str(outer) + "\n"
+
+	print output
 
 	season, trend, work, rw = stl(y = x, n = n,
 			np = period, ns = s_window, nt= t_window, nl = l_window,
 			isdeg = s_degree, itdeg= t_degree, ildeg = l_degree,
 			nsjump = s_jump, ntjump = t_jump, nljump = l_jump,
 			ni = inner, no = outer,
-			season = numpy.zeros(n), trend = numpy.zeros(n), work = numpy.zeros((n + 2 * period)/5))
+			season = numpy.zeros(n), trend = numpy.zeros(n), work = numpy.zeros((5,(n + 2 * period))))
 
 	return season, trend, work
 
@@ -593,16 +497,24 @@ y = numpy.array(
 	 355, 306, 271, 306, 315, 301, 356, 348, 355, 422, 465, 467, 404, 347, 305, 336, 340, 318, 362, 348, 363, 435, 491,
 	 505, 404, 359, 310, 337, 360, 342, 406, 396, 420, 472, 548, 559, 463, 407, 362, 405, 417, 391, 419, 461, 472, 535,
 	 622, 606, 508, 461, 390, 432])
-n = 144
-np = ns = nt = nl = 12
-isdeg = itdeg = ildeg = 12
-nsjump = ntjump = nljump = 12
-ni = 20
-no = 20
-season = numpy.zeros(144)
-trend = numpy.zeros(144)
-work = numpy.zeros((144, 5))
 
+season, trend, work, rw = stl(y, 144, 12, 1441, 19, 13, 0, 1, 1, 145, 2, 2, 2, 0,
+							  numpy.zeros(144), numpy.zeros(144), numpy.zeros((5,144 + 2 * 12)))
 
-# stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg, nsjump, ntjump, nljump, ni, no, season, trend, work)
-print STL(y, period = 12)
+season, trend, work = STL(y, period = 12)
+
+subplot_num = 411
+# for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
+for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
+	pyplot.figure(1)
+	pyplot.subplot(subplot_num)
+	subplot_num += 1
+	pyplot.plot(i)
+
+work_size = work.shape[0]
+for i in range(0,work_size):
+	pyplot.figure(2)
+	pyplot.subplot((work_size * 100) + 11 + i)
+	pyplot.plot(work[i])
+
+pyplot.show()
