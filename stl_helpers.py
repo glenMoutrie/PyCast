@@ -191,5 +191,9 @@ def stlma(x, n, len, ave):
 
     return ave
 
-print numpy.linspace(1,10,10)
-print stlma(numpy.linspace(1,10,10), 10, 3, numpy.zeros(10))
+test_x = numpy.linspace(1,10,10)
+test_y = test_x.copy()
+
+print test_x
+print stlma(test_x, 10, 3, numpy.zeros(10))
+print stlma(stlma(test_x, 10, 3, numpy.zeros(10)), 8, 3, numpy.zeros(10))

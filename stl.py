@@ -13,6 +13,14 @@ from stl_helpers import *
 #       nsjump,ntjump,nljump: ........     for `s', `t' and `l' smoother
 #       ni, no              : number of inner and outer (robust) iterations
 
+# R PARAMETERS (REMEMBER THE INDEXING IS 1 BASED)
+# STL PARAMETERS:
+# n:  144 		 period:  12
+# s.window:  1441 	 t.window:  19 	 l.window:  13
+# s.degree:  0 		 t.degree:  1 	 l.degree:  1
+# s.jump:  145 		 t.jump:  2 	 l.jump:  2
+# inner:  2 		 outer:  0
+
 # This is the workhorse function that does the bulk of the work
 def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,season,trend,work):
 
@@ -23,6 +31,7 @@ def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,se
 	# Work1: Starts off as y, then is steadily detrended Y_v
 	# Work2: Cycle subseries of size N + 2 * np. Time index is -np + 1 to N + np
 	# work3: Stores the weights from the cycle subseries smoothing
+	# Work 4
 
 
 	# Inner loop from Cleveland et al.
@@ -30,17 +39,31 @@ def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,se
 
 		# Detrend
 		for i in range(0,n):
-			work[1][i] = y[i] - trend[i]
+			work[0][i] = y[i] - trend[i]
 
 		# Cycle subseries smoothing
-		work[2], work[3], work[4], season = stlss(work[0], n, np, ns, isdeg, nsjump, userw, rw,
-												   season, work[1], work[2], work[3], work[4])
-
+		# Fortran funciton
+		# stlss(y = work[0], n = n, np = np, ns = ns, isdeg = isdeg, nsjump = nsjump, userw = userw, rw = rw, season = work[1],
+		# & work1, work2, work3, work4)
+		# season, work[2], work[3], work[4], work[1] = stlss(y = work[0], n = n, np = np, ns = ns,
+		# 												   isdeg = isdeg, nsjump = nsjump, userw = userw,
+		# 												   rw = rw, season = work[1],
+		# 												   work1 = work[2], work2 = work[3],
+		# 												   work3 = work[4], work4 = season)
+		stlss(y=work[0], n=n, np=np, ns=ns,
+			  												   isdeg = isdeg, nsjump = nsjump, userw = userw,
+			  												   rw = rw, season = work[1],
+			  												   work1 = work[2], work2 = work[3],
+			  												   work3 = work[4], work4 = season)
 		# Low-pass filter of smoothed cycle subseries
 		# 1) Remove moving average components first using stlfts
 		# 2) Removing an additional LOESS component with d = 1, q = n(l)
-		work[2], work[0] = stlfts(work[1], n + 2 * np, np, work[2], work[0])
-		work[0], work[4] = stless(work[2], n, nl, ildeg, nljump, False, work[3], work[0], work[4])
+		stlfts(x = work[1],n = n + 2 * np, np = np,
+			   trend = work[2], work = work[0])
+
+		stless(y = work[2], n = n, len = nl, ideg = ildeg,
+								  njump = nljump, userw =  False,
+								  rw = work[3], ys = work[0], res = work[4])
 
 		# Detrending of smoothed cycle series
 		for i in range(0,n):
@@ -51,10 +74,117 @@ def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,se
 			work[0][i] = y[i] - season[i]
 
 		# Trend smoothing using LOESS q = n(t) d = 1
-		trend, work[2] = stless(work[0], n, nt, itdeg, ntjump,userw,rw,trend,work[2])
+		stless(y = work[0], n = n, len = nt, ideg = itdeg,
+								njump = ntjump, userw = userw,
+								rw = rw, ys = trend, res = work[2])
 
 	return season, trend, work
 
+
+# Low-pass filter of smoothed cycle subseries
+# This function takes three moving averages, as stipulated in the paper. This is using
+# work zero, the detrended series.
+def stlfts(x, n, np, trend, work):
+
+	stlma(x, n, np, trend)
+	stlma(trend, n-np + 1, np , work)
+	stlma(work, n-2*np + 2, 3, trend)
+	return trend, work
+
+# Call from stlss:
+# stless(work1, k, ns, isdeg, nsjump, userw, work3, work2, work4)
+
+# y: object to estimate loess
+# n: size of object
+# len: length of local area
+# ideg: number of degrees for fit, either 1 or 2
+# njump:
+# rw: weights
+# ys: updated fit
+def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
+
+	# If only two observations set work2 to be the averages
+	if n < 1:
+		ys[0] = y[0]
+		return
+
+	newnj = int(min(njump, n - 2))
+
+	# If the local area length is longer than the number of
+	# observations
+	if len >= n:
+		nleft = 0
+		nright = n - 1
+
+		# Estimate parameters and fit for the full range of weights with a full span
+		for i in range(0,n,newnj):
+			ys[i], res = stlest(y, n, len, ideg,i, ys[i], nleft, nright, res, userw, rw, ok)
+			if not ok:
+				ys[i] = y[i]
+	else:
+
+		if newnj == 1:
+			nsh = int((len + 1)*0.5)
+			nleft = 0
+			nright = len - 1
+
+			# Estimate all parameters between zero and N using a seasons width
+			for i in range(0,n):
+				if i > nsh and nright < n - 1:
+					nleft += 1
+					nright += 1
+
+				ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+				if not ok:
+					ys[i] = y[i]
+
+		else:
+
+
+			nsh = (len + 1) * 0.5
+
+			# Only estimate parameters with a gap of either njump or n - 2 (largest possible)
+			for i in range(0, n, int(newnj)):
+
+				#  Code to ensure the nleft and nright is within each seasonal period ie a year
+				if i < nsh:
+					nleft = 0
+					nright = len
+				elif i >= n - nsh + 1:
+					nleft = n - len + 1
+					nright = n
+				else:
+					nleft = i - nsh + 1
+					nright = len + i - nsh
+
+				ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+
+				if not ok:
+					ys[i] = y[i]
+
+
+	if not newnj == 1:
+		for i in range(0, n - newnj, newnj):
+			delta = (ys[i + newnj] - ys[i])/newnj
+
+			for j in range(i + 1, i + newnj):
+				ys[j] = ys[i] + delta * (j - i)
+
+		k = ((n - 1)/newnj)*newnj + 1
+
+		if not k == n:
+			ys[i], res = stlest(y, n, len, ideg, n, ys[i], nleft, nright, res, userw, rw, ok)
+
+			if not ok:
+				ys[n - 1] = y[n - 1]
+
+			if not k == n - 1:
+				delta = (ys[n - 1] - ys[k])/(n - k)
+
+				for j in range(k + 1, n):
+					ys[j] = ys[k] + delta * (j - k)
+
+	return ys, res
 
 # CYCLE-SUBSERIES SMOOTHING
 #
@@ -82,22 +212,29 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 	# is 12 then this is effectively looping over each month
 	for j in range(0, np):
 
+		# Number of occurances of this part of the season throughout the entire series
 		k = (n - j)/np + 1
 
 		for i in range(0,k):
 			# Each i is one seasonal period
 			# Work one stores the y value for each time period of the season across all seasons.
 			# For example every y for september
-			work1[i] = y[i * np + j]
+			work1[i] = y[i * np + j - 1]
 
 		if userw:
 			for i in range(0, k):
 				work3[i] = rw[i * np + j - 1]
 
-		work2, work4 = stless(work1, k, ns, isdeg, nsjump, userw, work3, work2, work4)
+		# stless(y, n, len, ideg, njump, userw, rw, ys, res, ok=False):
+		# Call from R version only passes the second index.... this is odd....
+		# call stless(work1,k,ns,isdeg,nsjump,userw,work3,work2(2),work4)
+		work2, work4 = stless(y = work1, n = k, len = ns,
+							  ideg = isdeg, njump = nsjump, userw = userw,
+							  rw = work3, ys = work2[1:], res = work4)
 
 		xs = 0
 
+		# This will almost always be k, which is larger than n itslf (n * 10 + 1)
 		nright = min(ns, k)
 
 		work2[0], work4 = stlest(work1, k, ns, isdeg, xs, work2[0], 1, nright, work4, userw, work3, ok)
@@ -114,100 +251,15 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 		if not ok:
 			work2[k + 2] = work2[k + 1]
 
-		for m in range(0, k + 1):
-			season[(m-1) * np + j - 1] = work2[m]
-
-	return work2, work3, work4, season
+		# for j in range(np):
+			print [i for i in map(lambda m: (m*np) + j, range(0, k ))]
 
 
-# Call from stlss:
-# stless(work1, k, ns, isdeg, nsjump, userw, work3, work2, work4)
+		for m in range(0, k + 2):
+			season[(m * np) + j - 1] = work2[m]
 
-# y: object to estimate loess
-# n: size of object
-# len: length of local area
-# ideg: number of degrees for fit, either 1 or 2
-# njump:
-# rw: weights
-# ys: updated fit
-def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
+	# return work1, work2, work3, work4, season
 
-	# If only two observations set work2 to be the averages
-	if n < 2:
-		ys[0] = y[0]
-		return
-
-	newnj = int(min(njump, n - 1))
-
-	# If the local area length is longer than the number of
-	# observations
-	if len >= n:
-		nleft = 1
-		nright = n
-
-		# Estimate parameters and fit for the full range of weights with a full span
-		for i in range(0,n,newnj):
-			ys[i], res = stlest(y, n, len, ideg,i, ys[i], nleft, nright, res, userw, rw, ok)
-			if not ok:
-				ys[i] = y[i]
-	else:
-
-		if newnj == 1:
-			nsh = (len + 1)*0.5
-			nleft = 0
-			nright = len
-
-			for i in range(0,n):
-				if i > nsh and not nright == n:
-					nleft += 1
-					nright += 1
-
-				ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
-				if not ok:
-					ys[i] = y[i]
-
-		else:
-			nsh = (len + 1) * 0.5
-
-			for i in range(0, n, int(newnj)):
-				if i < nsh:
-					nleft = 0
-					nright = len
-				elif i >= n - nsh + 1:
-					nleft = n - len + 1
-					nright = n
-				else:
-					nleft = i - nsh + 1
-					nright = len + i - nsh
-
-				ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
-
-				if not ok:
-					ys[i] = y[i]
-
-
-	if not newnj == 1:
-		for i in range(0, n - newnj, newnj):
-			delta = (ys[i + newnj] - ys[i])/newnj
-
-			for j in range(i, i + newnj):
-				ys[j] = ys[i] + delta * (j - i)
-
-		k = ((n - 1)/newnj)*newnj
-
-		if not k == n:
-			ys[i], res = stlest(y, n, len, ideg, n, ys[i], nleft, nright, res, userw, rw, ok)
-
-			if not ok:
-				ys[n - 1] = y[n - 1]
-
-			if not k == n - 1:
-				delta = (ys[n - 1] - ys[k])/(n - k)
-
-				for j in range(k, n):
-					ys[j] = ys[k] + delta * (j - k)
-
-	return ys, res
 
 # WEIGHT CALCULATOR AND LOESS ESTIMATOR
 #
@@ -226,7 +278,7 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 # stlest(y, n, len, ideg,i, ys[i], nleft, nright, res, userw, rw, ok)
 def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 
-	nleft = int(nleft) - 1
+	nleft = int(nleft)
 	nright = int(nright)
 	y_range = n - 1.
 
@@ -297,15 +349,6 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 				ys += w[j] * y[j]
 	return ys, w
 
-
-def stlfts(x, n, np, trend, work):
-	trend = stlma(x, n, np, trend)
-	work = stlma(trend, n-np + 1, np , work)
-	trend = stlma(work, n-(2*np)+2, 3, trend)
-	return trend, work
-
-
-
 # Calculate the robustness weights, uses psort
 # Robustness Weights
 #       rw_i := B( |y_i - fit_i| / (6 M) ),   i = 1,2,...,n
@@ -320,7 +363,6 @@ def stlrwt(y, n, fit, rw):
 
 	# TODO use psort instead of .sort
 	# psort(y, n, mid, 2)
-	rw = rw.copy()
 	rw.sort()
 
 	# 6((midpoint_1 + midpoint_2)/2)
@@ -358,7 +400,7 @@ def stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 
 	rw = numpy.zeros(n)
 
-	userw = True
+	userw = False
 
 	trend = numpy.zeros(n)
 
@@ -376,8 +418,11 @@ def stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 	# Outer loop in Cleveland et al.
 	for k in range(0, no):
 
-		season, trend, work = stlstp(y, n, newnp, newns, newnt, newnl, isdeg, itdeg, ildeg, nsjump, ntjump, nljump, ni,
-									 userw, rw, season, trend, work)
+		# stlstp(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg, nsjump, ntjump, nljump, ni, userw, rw, season, trend, work):
+		season, trend, work = stlstp(y = y, n = n, np = newnp, ns = newns, nt = newnt, nl = newnl,
+									 isdeg = isdeg, itdeg = itdeg, ildeg = ildeg,
+									 nsjump = nsjump, ntjump =  ntjump, nljump =  nljump, ni = ni,
+									 userw = userw, rw = rw, season = season, trend = trend, work = work)
 
 		# TODO run through and check that n + 1 or 1 is replaced with 0 is used where needed in for loops
 		# as indexing in Fortran is one indexed...
@@ -512,6 +557,7 @@ for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
 	pyplot.plot(i)
 
 work_size = work.shape[0]
+
 for i in range(0,work_size):
 	pyplot.figure(2)
 	pyplot.subplot((work_size * 100) + 11 + i)
