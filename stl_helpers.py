@@ -191,9 +191,23 @@ def stlma(x, n, len, ave):
 
     return ave
 
-test_x = numpy.linspace(1,10,10)
-test_y = test_x.copy()
+# test_x = numpy.linspace(1,10,10)
+# test_y = test_x.copy()
+#
+# print test_x
+# print stlma(test_x, 10, 3, numpy.zeros(10))
+# print stlma(stlma(test_x, 10, 3, numpy.zeros(10)), 8, 3, numpy.zeros(10))
 
-print test_x
-print stlma(test_x, 10, 3, numpy.zeros(10))
-print stlma(stlma(test_x, 10, 3, numpy.zeros(10)), 8, 3, numpy.zeros(10))
+def nextOdd(x):
+	x = round(x)
+
+	if x % 2 == 0:
+		x += 1
+
+	return x
+
+def degCheck(deg):
+	if deg < 0 or deg > 1:
+		raise Exception('Degrees must be 0 or 1')
+
+	return int(deg)

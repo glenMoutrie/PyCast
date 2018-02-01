@@ -21,6 +21,8 @@ from stl_helpers import *
 # s.jump:  145 		 t.jump:  2 	 l.jump:  2
 # inner:  2 		 outer:  0
 
+
+
 # This is the workhorse function that does the bulk of the work
 def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,season,trend,work):
 
@@ -31,8 +33,7 @@ def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,se
 	# Work1: Starts off as y, then is steadily detrended Y_v
 	# Work2: Cycle subseries of size N + 2 * np. Time index is -np + 1 to N + np
 	# work3: Stores the weights from the cycle subseries smoothing
-	# Work 4
-
+	# Work4
 
 	# Inner loop from Cleveland et al.
 	for j in range(0,ni):
@@ -51,10 +52,10 @@ def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,se
 		# 												   work1 = work[2], work2 = work[3],
 		# 												   work3 = work[4], work4 = season)
 		stlss(y=work[0], n=n, np=np, ns=ns,
-			  												   isdeg = isdeg, nsjump = nsjump, userw = userw,
-			  												   rw = rw, season = work[1],
-			  												   work1 = work[2], work2 = work[3],
-			  												   work3 = work[4], work4 = season)
+			  isdeg = isdeg, nsjump = nsjump, userw = userw,
+			  rw = rw, season = work[1],
+			  work1 = work[2], work2 = work[3],
+			  work3 = work[4], work4 = season)
 		# Low-pass filter of smoothed cycle subseries
 		# 1) Remove moving average components first using stlfts
 		# 2) Removing an additional LOESS component with d = 1, q = n(l)
@@ -74,9 +75,10 @@ def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,se
 			work[0][i] = y[i] - season[i]
 
 		# Trend smoothing using LOESS q = n(t) d = 1
-		stless(y = work[0], n = n, len = nt, ideg = itdeg,
-								njump = ntjump, userw = userw,
-								rw = rw, ys = trend, res = work[2])
+		stless(y = work[0], n = n, len = nt,
+			   ideg = itdeg, njump = ntjump,
+			   userw = userw, rw = rw,
+			   ys = trend, res = work[2])
 
 	return season, trend, work
 
@@ -87,9 +89,8 @@ def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,se
 def stlfts(x, n, np, trend, work):
 
 	stlma(x, n, np, trend)
-	stlma(trend, n-np + 1, np , work)
-	stlma(work, n-2*np + 2, 3, trend)
-	return trend, work
+	stlma(trend, n-np, np , work)
+	stlma(work, n-2*np, 3, trend)
 
 # Call from stlss:
 # stless(work1, k, ns, isdeg, nsjump, userw, work3, work2, work4)
@@ -118,7 +119,10 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 
 		# Estimate parameters and fit for the full range of weights with a full span
 		for i in range(0,n,newnj):
-			ys[i], res = stlest(y, n, len, ideg,i, ys[i], nleft, nright, res, userw, rw, ok)
+			stlest(y, n, len, ideg,i, ys[i],
+				   nleft, nright, res, userw,
+				   rw, ok)
+
 			if not ok:
 				ys[i] = y[i]
 	else:
@@ -134,30 +138,34 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 					nleft += 1
 					nright += 1
 
-				ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+				stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
 				if not ok:
 					ys[i] = y[i]
 
 		else:
 
 
-			nsh = (len + 1) * 0.5
+			nsh = (len) * 0.5
 
 			# Only estimate parameters with a gap of either njump or n - 2 (largest possible)
 			for i in range(0, n, int(newnj)):
 
 				#  Code to ensure the nleft and nright is within each seasonal period ie a year
+				# TODO: Ensure the conversion from one to zero indexing is correct
 				if i < nsh:
 					nleft = 0
 					nright = len
-				elif i >= n - nsh + 1:
-					nleft = n - len + 1
-					nright = n
+				elif i >= n - nsh:
+					nleft = n - len
+					nright = n - 1
 				else:
-					nleft = i - nsh + 1
-					nright = len + i - nsh
+					nleft = i - nsh
+					nright = len + i - nsh - 1
 
-				ys[i], res = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+				# stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok)
+				stlest(y = y, n = n, len = len, ideg = ideg, xs = i, ys = ys[i],
+					   nleft = nleft, nright = nright, w = res,
+					   userw = userw, rw = rw, ok = ok)
 
 				if not ok:
 					ys[i] = y[i]
@@ -167,21 +175,23 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 		for i in range(0, n - newnj, newnj):
 			delta = (ys[i + newnj] - ys[i])/newnj
 
-			for j in range(i + 1, i + newnj):
+			for j in range(i, i + newnj):
 				ys[j] = ys[i] + delta * (j - i)
 
-		k = ((n - 1)/newnj)*newnj + 1
+		k = ((n - 1)/newnj)*newnj
 
-		if not k == n:
-			ys[i], res = stlest(y, n, len, ideg, n, ys[i], nleft, nright, res, userw, rw, ok)
+		if not k == n - 1:
+			stlest(y = y, n = n, len = len, ideg = ideg, xs = n, ys = ys[i],
+				   nleft = nleft, nright = nright, w = res, userw = userw,
+				   rw = rw, ok = ok)
 
 			if not ok:
 				ys[n - 1] = y[n - 1]
 
-			if not k == n - 1:
+			if not k == n - 2:
 				delta = (ys[n - 1] - ys[k])/(n - k)
 
-				for j in range(k + 1, n):
+				for j in range(k + 1, n - 1):
 					ys[j] = ys[k] + delta * (j - k)
 
 	return ys, res
@@ -228,7 +238,7 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 		# stless(y, n, len, ideg, njump, userw, rw, ys, res, ok=False):
 		# Call from R version only passes the second index.... this is odd....
 		# call stless(work1,k,ns,isdeg,nsjump,userw,work3,work2(2),work4)
-		work2, work4 = stless(y = work1, n = k, len = ns,
+		stless(y = work1, n = k, len = ns,
 							  ideg = isdeg, njump = nsjump, userw = userw,
 							  rw = work3, ys = work2[1:], res = work4)
 
@@ -237,22 +247,24 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 		# This will almost always be k, which is larger than n itslf (n * 10 + 1)
 		nright = min(ns, k)
 
-		work2[0], work4 = stlest(work1, k, ns, isdeg, xs, work2[0], 1, nright, work4, userw, work3, ok)
+		stlest(y = work1, n = k, len = ns, ideg = isdeg, xs = xs, ys = work2[0],
+								 nleft = 0, nright = nright, w = work4, userw = userw, rw = work3, ok = ok)
 
 		if not ok:
 			work2[0] = work2[1]
 
 		xs = k + 1
 
-		nleft = max(0, k - ns)
+		nleft = max(0, k - ns - 1)
 
-		work2[k + 2], work4 = stlest(work1, k, ns, isdeg, xs, work2[k + 2], nleft, k, work4, userw, work3, ok)
+		stlest(y = work1, n = k, len = ns, ideg = isdeg, xs = xs, ys = work2[k + 1],
+									 nleft = nleft, nright = k, w = work4, userw = userw, rw = work3, ok = ok)
 
 		if not ok:
-			work2[k + 2] = work2[k + 1]
+			work2[k + 1] = work2[k]
 
 		# for j in range(np):
-			print [i for i in map(lambda m: (m*np) + j, range(0, k ))]
+		# 	print [i for i in map(lambda m: (m*np) + j, range(0, k ))]
 
 
 		for m in range(0, k + 2):
@@ -274,10 +286,14 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 # nleft, nright; number of observations to the left and right to consider
 # w: weights
 #
+# The indexes put in SHOULD BE ZERO indexed not 1 indexed. The calculatins have been altered accordingly.
+#
 # Call from stless
 # stlest(y, n, len, ideg,i, ys[i], nleft, nright, res, userw, rw, ok)
 def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 
+	# I think these may need to be put one forward due to zero indexing...
+	# TODO: validate this assumption
 	nleft = int(nleft)
 	nright = int(nright)
 	y_range = n - 1.
@@ -298,7 +314,7 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 	for j in range(nleft, nright):
 
 		# Referenced in paper as |x_i - x|
-		r = abs(j - xs)
+		r = abs(j - xs + 1)
 
 		# Calculate the tricube weight function
 		# W(u) = (1-u^3)^3 for 0 <= u < 1
@@ -330,19 +346,21 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 			a = 0.
 
 			for j in range(nleft, nright):
-				a += w[j] * j
+				# Changed from source, adding one to j due to zero indexing
+				a += w[j] * (j + 1)
 
 			b = xs - a
 			c = 0.
 
 			for j in range(nleft, nright):
-				c += w[j]*(j - a)**2
+				c += w[j]*(j - a + 1)**2
 
 			if c ** 0.5 > 0.001 * y_range:
 				b = b/c
 
 				for j in range(nleft, nright):
-					w[j] = w[j] * (b * (j - a) + 1)
+					# Changed from (b* (j - a) + 1) due to zero indexing
+					w[j] = w[j] * (b * (j - a + 1))
 
 			ys = 0.
 			for j in range(nleft, nright):
@@ -373,6 +391,7 @@ def stlrwt(y, n, fit, rw):
 
 	for i in range(n):
 		r = numpy.abs(y[i] - fit[i])
+
 		if r < c_1:
 			rw[i] = 1.
 		elif r < c_9:
@@ -419,49 +438,37 @@ def stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 	for k in range(0, no):
 
 		# stlstp(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg, nsjump, ntjump, nljump, ni, userw, rw, season, trend, work):
-		season, trend, work = stlstp(y = y, n = n, np = newnp, ns = newns, nt = newnt, nl = newnl,
-									 isdeg = isdeg, itdeg = itdeg, ildeg = ildeg,
-									 nsjump = nsjump, ntjump =  ntjump, nljump =  nljump, ni = ni,
-									 userw = userw, rw = rw, season = season, trend = trend, work = work)
+		stlstp(y = y, n = n, np = newnp, ns = newns, nt = newnt, nl = newnl,
+			   isdeg = isdeg, itdeg = itdeg, ildeg = ildeg,
+			   nsjump = nsjump, ntjump =  ntjump, nljump =  nljump, ni = ni,
+			   userw = userw, rw = rw, season = season, trend = trend, work = work)
 
 		# TODO run through and check that n + 1 or 1 is replaced with 0 is used where needed in for loops
 		# as indexing in Fortran is one indexed...
 		for i in range(0, n):
 			work[0][i] = trend[i] + season[i]
 
-		rw = stlrwt(y, n, work[0][0:n], rw)
+		print rw
+
+		stlrwt(y, n, work[0][0:n], rw)
 
 		userw = True
 
 	# Robustness weights when there were no robustness iterations
-	if no <= 0:
+	if no <= 1:
 		rw = numpy.linspace(1, 1, n)
 
 	return season, trend, work, rw
 
 
-def nextOdd(x):
-	x = round(x)
-
-	if x % 2 == 0:
-		x += 1
-
-	return x
-
-def degCheck(deg):
-	if deg < 0 or deg > 1:
-		raise Exception('Degrees must be 0 or 1')
-
-	return int(deg)
-
-def STL(x, period, s_window = None, s_degree = 0, t_window = None, t_degree = 1, l_window = None, l_degree = None,
+def STL(x, period, s_window = None, s_degree = 0,t_window = None, t_degree = 1, l_window = None, l_degree = None,
 		s_jump = None, t_jump = None, l_jump = None, robust = False, inner = None, outer = None):
 
 	n = x.shape[0]
 
 	if s_window is None:
 		periodic = True
-		s_window = 10 * n + 1
+		s_window = 10 * n #+ 1
 		s_degree = 0
 
 	if t_window is None:
@@ -519,14 +526,14 @@ def STL(x, period, s_window = None, s_degree = 0, t_window = None, t_degree = 1,
 
 	print output
 
-	season, trend, work, rw = stl(y = x, n = n,
+	season, trend, work, w = stl(y = x, n = n,
 			np = period, ns = s_window, nt= t_window, nl = l_window,
 			isdeg = s_degree, itdeg= t_degree, ildeg = l_degree,
 			nsjump = s_jump, ntjump = t_jump, nljump = l_jump,
 			ni = inner, no = outer,
 			season = numpy.zeros(n), trend = numpy.zeros(n), work = numpy.zeros((5,(n + 2 * period))))
 
-	return season, trend, work
+	return season, trend, work, w
 
 
 
@@ -546,16 +553,18 @@ y = numpy.array(
 season, trend, work, rw = stl(y, 144, 12, 1441, 19, 13, 0, 1, 1, 145, 2, 2, 2, 0,
 							  numpy.zeros(144), numpy.zeros(144), numpy.zeros((5,144 + 2 * 12)))
 
-season, trend, work = STL(y, period = 12)
+season, trend, work, rw = STL(y, period = 12)
 
 subplot_num = 411
 # for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
 for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
+	print i
 	pyplot.figure(1)
 	pyplot.subplot(subplot_num)
 	subplot_num += 1
 	pyplot.plot(i)
 
+print rw
 work_size = work.shape[0]
 
 for i in range(0,work_size):
