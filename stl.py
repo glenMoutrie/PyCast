@@ -21,7 +21,116 @@ from stl_helpers import *
 # s.jump:  145 		 t.jump:  2 	 l.jump:  2
 # inner:  2 		 outer:  0
 
+class STL:
 
+	def _init_(self, x, period, s_window = None, s_degree = 0,t_window = None, t_degree = 1, l_window = None, l_degree = None,
+		s_jump = None, t_jump = None, l_jump = None, robust = False, inner = None, outer = None, verbose = False):
+
+		# Set the parameters
+		self.x = x
+		self.n = x.shape[0]
+		self.period = period
+		self.s_window = s_window
+		self.s_degree = s_degree
+		self.t_window = t_window
+		self.t_degree = t_degree
+		self.l_window = l_window
+		self.l_degree = l_degree
+		self.s_jump = s_jump
+		self.t_jump = t_jump
+		self.l_jump = l_jump
+		self.robust = robust
+		self.inner = inner
+		self.outer = outer
+
+		self.robust = robust
+
+
+		if self.s_window is None:
+			self.periodic = True
+			self.s_window = 10 * n  # + 1
+			self.s_degree = 0
+
+		if self.t_window is None:
+			self.t_window = nextOdd(ceil((1.5 * period / (1 - 1.5 / s_window))))
+
+		if self.l_window is None:
+			self.l_window = nextOdd(period)
+
+		# Add some smart defaults where needed
+		if self.l_degree is None:
+			self.l_degree = t_degree
+
+		if self.s_jump is None:
+			self.s_jump = ceil(s_window * 1. / 10)
+
+		if self.t_jump is None:
+			self.t_jump = ceil((t_window * 1. / 10))
+
+		if self.l_jump is None:
+			self.l_jump = ceil((l_window * 1. / 10))
+
+		# Smart defaults for inner and outer loop settings
+		if self.inner is None:
+			if self.robust:
+				self.inner = 1
+			else:
+				self.inner = 2
+
+		if self.outer is None:
+			if self.robust:
+				self.outer = 15
+			else:
+				# Has to be 1 not 0 as in R due to looping format in Fortran
+				self.outer = 1
+
+		if len(self.x.shape) > 1:
+			raise Exception('x should be a one dimensional array')
+
+		# TODO: create a proper function to find frequency, currently set by user
+		# period = frequency(x)
+
+		if period < 2 or n <= 2 * period:
+			raise Exception('Series is not periodic or has less than two periods')
+
+		self.s_degree = degCheck(self.s_degree)
+		self.t_degree = degCheck(self.t_degree)
+		self.l_degree = degCheck(self.l_degree)
+
+		if verbose:
+			self.print_parameter_values()
+
+		self.season = numpy.zeros(self.n)
+		self.trend = numpy.zeros(self.n)
+		self.work = numpy((5, (self.n + 2 * self.period)))
+
+		season, trend, work, w = stl(y = self.x, n = self.n,
+									 np = self.period, ns = self.s_window, nt = self.t_window, nl = self.l_window,
+									 isdeg = self.s_degree, itdeg = self.t_degree, ildeg= self.l_degree,
+									 nsjump= self.s_jump, ntjump = self.t_jump, nljump = self.l_jump,
+									 ni = self.inner, no = self.outer,
+									 season= self.season, trend= self.trend,
+									 work= self.work)
+
+		return season, trend, work, w
+
+	def print_parameter_values(self):
+
+		output = "\nSTL PARAMETERS:\n"
+		output += "n: " + str(self.n) + "\t\t\t period: " + str(self.period) + "\n"
+
+		output += "s_window: " + str(self.s_window) + "\t t_window: " + str(self.t_window)
+		output += "\t l_window: " + str(self.l_window) + "\n"
+
+		output += "s_degree: " + str(self.s_degree) + "\t\t t_degree: "
+		output += str(self.t_degree) + "\t l_degree: " + str(self.l_degree) + "\n"
+
+		output += "s_jump: " + str(self.s_jump) + "\t t_jump: " + str(self.t_jump)
+		output += "\t l_jump: " + str(self.l_jump) + "\n"
+
+		output += "inner: " + str(self.inner) + "\t\t outer: " + str(self.outer) + "\n"
+
+		print output
 
 # This is the workhorse function that does the bulk of the work
 def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,season,trend,work):
@@ -540,8 +649,9 @@ def STL(x, period, s_window = None, s_degree = 0,t_window = None, t_degree = 1, 
 
 	return season, trend, work, w
 
-
-
+################
+# Testing area #
+################
 
 # stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 # 		nsjump, ntjump, nljump, ni, no, season, trend, work)
@@ -569,7 +679,7 @@ season, trend, work, rw = STL(y, period = 12)
 
 subplot_num = 411
 # for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
-for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
+for i in [y, season, trend, y - season - trend]:
 	print i
 	pyplot.figure(1)
 	pyplot.subplot(subplot_num)
