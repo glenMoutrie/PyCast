@@ -68,10 +68,10 @@ def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,se
 
 		# Detrending of smoothed cycle series
 		for i in range(0,n):
-			season[i] = work[1][np + i] - work[0][i]
+			season[i] = work[1][np + i - 1] - work[0][i]
 
 		# Deseasonalise the time series
-		for i in range(0,n):
+		for i in range(0,n - 1):
 			work[0][i] = y[i] - season[i]
 
 		# Trend smoothing using LOESS q = n(t) d = 1
@@ -91,6 +91,8 @@ def stlfts(x, n, np, trend, work):
 	stlma(x, n, np, trend)
 	stlma(trend, n-np, np , work)
 	stlma(work, n-2*np, 3, trend)
+
+	return trend, work
 
 # Call from stlss:
 # stless(work1, k, ns, isdeg, nsjump, userw, work3, work2, work4)
@@ -119,7 +121,7 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 
 		# Estimate parameters and fit for the full range of weights with a full span
 		for i in range(0,n,newnj):
-			stlest(y, n, len, ideg,i, ys[i],
+			ys[i], ok = stlest(y, n, len, ideg,i, ys[i],
 				   nleft, nright, res, userw,
 				   rw, ok)
 
@@ -138,7 +140,7 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 					nleft += 1
 					nright += 1
 
-				stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
+				ys[i], ok = stlest(y, n, len, ideg, i, ys[i], nleft, nright, res, userw, rw, ok)
 				if not ok:
 					ys[i] = y[i]
 
@@ -151,10 +153,10 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 			for i in range(0, n, int(newnj)):
 
 				#  Code to ensure the nleft and nright is within each seasonal period ie a year
-				# TODO: Ensure the conversion from one to zero indexing is correct
+				# handling the first and last seasons being the size of half a season.
 				if i < nsh:
 					nleft = 0
-					nright = len
+					nright = len - 1
 				elif i >= n - nsh:
 					nleft = n - len
 					nright = n - 1
@@ -163,7 +165,7 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 					nright = len + i - nsh - 1
 
 				# stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok)
-				stlest(y = y, n = n, len = len, ideg = ideg, xs = i, ys = ys[i],
+				ys[i], ok = stlest(y = y, n = n, len = len, ideg = ideg, xs = i, ys = ys[i],
 					   nleft = nleft, nright = nright, w = res,
 					   userw = userw, rw = rw, ok = ok)
 
@@ -175,13 +177,14 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 		for i in range(0, n - newnj, newnj):
 			delta = (ys[i + newnj] - ys[i])/newnj
 
-			for j in range(i, i + newnj):
+			for j in range(i + 1, i + newnj * 2):
+				print j
 				ys[j] = ys[i] + delta * (j - i)
 
-		k = ((n - 1)/newnj)*newnj
+		k = ((n - 1)/newnj) * newnj + 1
 
 		if not k == n - 1:
-			stlest(y = y, n = n, len = len, ideg = ideg, xs = n, ys = ys[i],
+			ys[i], ok = stlest(y = y, n = n, len = len, ideg = ideg, xs = n, ys = ys[i],
 				   nleft = nleft, nright = nright, w = res, userw = userw,
 				   rw = rw, ok = ok)
 
@@ -229,11 +232,11 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 			# Each i is one seasonal period
 			# Work one stores the y value for each time period of the season across all seasons.
 			# For example every y for september
-			work1[i] = y[i * np + j - 1]
+			work1[i] = y[i * np + j]
 
 		if userw:
 			for i in range(0, k):
-				work3[i] = rw[i * np + j - 1]
+				work3[i] = rw[i * np + j]
 
 		# stless(y, n, len, ideg, njump, userw, rw, ys, res, ok=False):
 		# Call from R version only passes the second index.... this is odd....
@@ -247,7 +250,7 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 		# This will almost always be k, which is larger than n itslf (n * 10 + 1)
 		nright = min(ns, k)
 
-		stlest(y = work1, n = k, len = ns, ideg = isdeg, xs = xs, ys = work2[0],
+		work2[0], ok = stlest(y = work1, n = k, len = ns, ideg = isdeg, xs = xs, ys = work2[0],
 								 nleft = 0, nright = nright, w = work4, userw = userw, rw = work3, ok = ok)
 
 		if not ok:
@@ -257,11 +260,11 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 
 		nleft = max(0, k - ns - 1)
 
-		stlest(y = work1, n = k, len = ns, ideg = isdeg, xs = xs, ys = work2[k + 1],
+		work2[k], ok = stlest(y = work1, n = k, len = ns, ideg = isdeg, xs = xs, ys = work2[k],
 									 nleft = nleft, nright = k, w = work4, userw = userw, rw = work3, ok = ok)
 
 		if not ok:
-			work2[k + 1] = work2[k]
+			work2[k] = work2[k - 1]
 
 		# for j in range(np):
 		# 	print [i for i in map(lambda m: (m*np) + j, range(0, k ))]
@@ -299,10 +302,10 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 	y_range = n - 1.
 
 	# Referenced in paper as lambda_q(x), can be achievd using indexes
-	h = max(xs - nleft, nright - xs)
+	h = (max(xs - nleft, nright - xs)) * 1.0
 
 	if len > n:
-		h += ((len - 2)/2.)
+		h += ((len - n)/2.)
 
 	h9 = 0.999 * h
 	h1 = 0.001 * h
@@ -314,7 +317,7 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 	for j in range(nleft, nright):
 
 		# Referenced in paper as |x_i - x|
-		r = abs(j - xs + 1)
+		r = abs(j - xs)
 
 		# Calculate the tricube weight function
 		# W(u) = (1-u^3)^3 for 0 <= u < 1
@@ -337,11 +340,14 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 	# Only proceed if the total weights are greater than zero
 	ok = a > 0.
 
-	# I believe that this is where the LOESS fit is actually estimated.
+	# This is where the loess is fitted
 	if ok:
+
+		# Divide the weights by their total sum
 		for j in range(nleft, nright):
 			w[j] = w[j]/a
 
+		# If a polynomial fit is needed
 		if h > 0. and ideg > 0.:
 			a = 0.
 
@@ -349,23 +355,22 @@ def stlest(y, n, len, ideg, xs, ys, nleft, nright, w, userw, rw, ok):
 				# Changed from source, adding one to j due to zero indexing
 				a += w[j] * (j + 1)
 
-			b = xs - a
+			b = xs - a +1
 			c = 0.
 
 			for j in range(nleft, nright):
-				c += w[j]*(j - a + 1)**2
+				c += w[j] * (j - a + 1)**2
 
 			if c ** 0.5 > 0.001 * y_range:
 				b = b/c
 
 				for j in range(nleft, nright):
-					# Changed from (b* (j - a) + 1) due to zero indexing
-					w[j] = w[j] * (b * (j - a + 1))
+					w[j] = w[j] * (b * (j - a + 1) + 1)
 
-			ys = 0.
-			for j in range(nleft, nright):
-				ys += w[j] * y[j]
-	return ys, w
+		ys = 0.
+		for j in range(nleft, nright):
+			ys += w[j] * y[j]
+	return ys, ok
 
 # Calculate the robustness weights, uses psort
 # Robustness Weights
@@ -542,16 +547,23 @@ def STL(x, period, s_window = None, s_degree = 0,t_window = None, t_degree = 1, 
 # 		nsjump, ntjump, nljump, ni, no, season, trend, work)
 
 y = numpy.array(
-	[112, 118, 132, 129, 121, 135, 148, 148, 136, 119, 104, 118, 115, 126, 141, 135, 125, 149, 170, 170, 158, 133, 114,
-	 140, 145, 150, 178, 163, 172, 178, 199, 199, 184, 162, 146, 166, 171, 180, 193, 181, 183, 218, 230, 242, 209, 191,
-	 172, 194, 196, 196, 236, 235, 229, 243, 264, 272, 237, 211, 180, 201, 204, 188, 235, 227, 234, 264, 302, 293, 259,
-	 229, 203, 229, 242, 233, 267, 269, 270, 315, 364, 347, 312, 274, 237, 278, 284, 277, 317, 313, 318, 374, 413, 405,
-	 355, 306, 271, 306, 315, 301, 356, 348, 355, 422, 465, 467, 404, 347, 305, 336, 340, 318, 362, 348, 363, 435, 491,
-	 505, 404, 359, 310, 337, 360, 342, 406, 396, 420, 472, 548, 559, 463, 407, 362, 405, 417, 391, 419, 461, 472, 535,
-	 622, 606, 508, 461, 390, 432])
+	[112, 118, 132, 129, 121, 135, 148, 148, 136, 119, 104, 118,
+	 115, 126, 141, 135, 125, 149, 170, 170, 158, 133, 114, 140,
+	 145, 150, 178, 163, 172, 178, 199, 199, 184, 162, 146, 166,
+	 171, 180, 193, 181, 183, 218, 230, 242, 209, 191, 172, 194,
+	 196, 196, 236, 235, 229, 243, 264, 272, 237, 211, 180, 201,
+	 204, 188, 235, 227, 234, 264, 302, 293, 259, 229, 203, 229,
+	 242, 233, 267, 269, 270, 315, 364, 347, 312, 274, 237, 278,
+	 284, 277, 317, 313, 318, 374, 413, 405, 355, 306, 271, 306,
+	 315, 301, 356, 348, 355, 422, 465, 467, 404, 347, 305, 336,
+	 340, 318, 362, 348, 363, 435, 491, 505, 404, 359, 310, 337,
+	 360, 342, 406, 396, 420, 472, 548, 559, 463, 407, 362, 405,
+	 417, 391, 419, 461, 472, 535, 622, 606, 508, 461, 390, 432])
 
 season, trend, work, rw = stl(y, 144, 12, 1441, 19, 13, 0, 1, 1, 145, 2, 2, 2, 0,
 							  numpy.zeros(144), numpy.zeros(144), numpy.zeros((5,144 + 2 * 12)))
+
+print stlfts(y, 144, 12, numpy.zeros(144), numpy.zeros(144))
 
 season, trend, work, rw = STL(y, period = 12)
 
