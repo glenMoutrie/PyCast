@@ -23,7 +23,7 @@ from stl_helpers import *
 
 class STL:
 
-	def _init_(self, x, period, s_window = None, s_degree = 0,t_window = None, t_degree = 1, l_window = None, l_degree = None,
+	def __init__(self, x, period, s_window = None, s_degree = 0,t_window = None, t_degree = 1, l_window = None, l_degree = None,
 		s_jump = None, t_jump = None, l_jump = None, robust = False, inner = None, outer = None, verbose = False):
 
 		# Set the parameters
@@ -42,33 +42,34 @@ class STL:
 		self.robust = robust
 		self.inner = inner
 		self.outer = outer
+		self.estimated = False
 
 		self.robust = robust
 
 
 		if self.s_window is None:
 			self.periodic = True
-			self.s_window = 10 * n  # + 1
+			self.s_window = 10 * self.n  # + 1
 			self.s_degree = 0
 
 		if self.t_window is None:
-			self.t_window = nextOdd(ceil((1.5 * period / (1 - 1.5 / s_window))))
+			self.t_window = nextOdd(ceil((1.5 * self.period / (1 - 1.5 / self.s_window))))
 
 		if self.l_window is None:
-			self.l_window = nextOdd(period)
+			self.l_window = nextOdd(self.period)
 
 		# Add some smart defaults where needed
 		if self.l_degree is None:
-			self.l_degree = t_degree
+			self.l_degree = self.t_degree
 
 		if self.s_jump is None:
-			self.s_jump = ceil(s_window * 1. / 10)
+			self.s_jump = ceil(self.s_window * 1. / 10)
 
 		if self.t_jump is None:
-			self.t_jump = ceil((t_window * 1. / 10))
+			self.t_jump = ceil((self.t_window * 1. / 10))
 
 		if self.l_jump is None:
-			self.l_jump = ceil((l_window * 1. / 10))
+			self.l_jump = ceil((self.l_window * 1. / 10))
 
 		# Smart defaults for inner and outer loop settings
 		if self.inner is None:
@@ -90,7 +91,7 @@ class STL:
 		# TODO: create a proper function to find frequency, currently set by user
 		# period = frequency(x)
 
-		if period < 2 or n <= 2 * period:
+		if self.period < 2 or self.n <= 2 * self.period:
 			raise Exception('Series is not periodic or has less than two periods')
 
 		self.s_degree = degCheck(self.s_degree)
@@ -102,17 +103,21 @@ class STL:
 
 		self.season = numpy.zeros(self.n)
 		self.trend = numpy.zeros(self.n)
-		self.work = numpy((5, (self.n + 2 * self.period)))
+		self.work = numpy.zeros((5, (self.n + 2 * self.period)))
 
-		season, trend, work, w = stl(y = self.x, n = self.n,
-									 np = self.period, ns = self.s_window, nt = self.t_window, nl = self.l_window,
-									 isdeg = self.s_degree, itdeg = self.t_degree, ildeg= self.l_degree,
-									 nsjump= self.s_jump, ntjump = self.t_jump, nljump = self.l_jump,
-									 ni = self.inner, no = self.outer,
-									 season= self.season, trend= self.trend,
-									 work= self.work)
 
-		return season, trend, work, w
+
+	def fit(self):
+		self.season, self.trend, self.work = stl(y=self.x, n=self.n,
+												 np=self.period, ns=self.s_window, nt=self.t_window, nl=self.l_window,
+												 isdeg=self.s_degree, itdeg=self.t_degree, ildeg=self.l_degree,
+												 nsjump=self.s_jump, ntjump=self.t_jump, nljump=self.l_jump,
+												 ni=self.inner, no=self.outer,
+												 season=self.season, trend=self.trend,
+												 work=self.work)
+
+		self.estimated = True
+
 
 	def print_parameter_values(self):
 
@@ -131,6 +136,19 @@ class STL:
 		output += "inner: " + str(self.inner) + "\t\t outer: " + str(self.outer) + "\n"
 
 		print output
+
+	def generate_plot(self):
+
+		if not self.estimated:
+			raise Exception("STL components must be estimated before plotting can be executed.")
+
+		subplot_num = 411
+
+		for i in [self.x, self.season, self.trend, self.x - self.season - self.trend]:
+			self.decomp_plot = pyplot.figure(1)
+			self.decomp_plot = pyplot.subplot(subplot_num)
+			subplot_num += 1
+			self.decomp_plot = pyplot.plot(i)
 
 # This is the workhorse function that does the bulk of the work
 def stlstp(y,n,np,ns,nt,nl,isdeg,itdeg,ildeg,nsjump,ntjump,nljump,ni,userw,rw,season,trend,work):
@@ -286,8 +304,8 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 		for i in range(0, n - newnj, newnj):
 			delta = (ys[i + newnj] - ys[i])/newnj
 
+			# TODO this works for now, but doesn't match up with what is needed in the code
 			for j in range(i + 1, i + newnj * 2):
-				print j
 				ys[j] = ys[i] + delta * (j - i)
 
 		k = ((n - 1)/newnj) * newnj + 1
@@ -515,7 +533,8 @@ def stlrwt(y, n, fit, rw):
 
 	return rw
 
-print stlrwt(numpy.linspace(1,10,10),10,numpy.linspace(11,20,10),numpy.zeros(10))
+# Potential unit test for stlrwt
+# print stlrwt(numpy.linspace(1,10,10),10,numpy.linspace(11,20,10),numpy.zeros(10))
 
 
 # STL converted from R stats procedure in FORTRAN
@@ -562,8 +581,6 @@ def stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 		for i in range(0, n):
 			work[0][i] = trend[i] + season[i]
 
-		print rw
-
 		stlrwt(y, n, work[0][0:n], rw)
 
 		userw = True
@@ -572,82 +589,8 @@ def stl(y, n, np, ns, nt, nl, isdeg, itdeg, ildeg,
 	if no <= 1:
 		rw = numpy.linspace(1, 1, n)
 
-	return season, trend, work, rw
+	return season, trend, work
 
-
-def STL(x, period, s_window = None, s_degree = 0,t_window = None, t_degree = 1, l_window = None, l_degree = None,
-		s_jump = None, t_jump = None, l_jump = None, robust = False, inner = None, outer = None):
-
-	n = x.shape[0]
-
-	if s_window is None:
-		periodic = True
-		s_window = 10 * n #+ 1
-		s_degree = 0
-
-	if t_window is None:
-		t_window = nextOdd(ceil((1.5 * period / (1- 1.5/s_window))))
-
-	if l_window is None:
-		l_window = nextOdd(period)
-
-	# Add some smart defaults where needed
-	if l_degree is None:
-		l_degree = t_degree
-
-	if s_jump is None:
-		s_jump = ceil(s_window*1./10)
-
-	if t_jump is None:
-		t_jump = ceil((t_window*1./10))
-
-	if l_jump is None:
-		l_jump = ceil((l_window*1./10))
-
-	# Smart defaults for inner and outer loop settings
-	if inner is None:
-		if robust:
-			inner = 1
-		else:
-			inner = 2
-
-	if outer is None:
-		if robust:
-			outer = 15
-		else:
-			# Has to be 1 not 0 as in R due to looping format in Fortran
-			outer = 1
-
-	if len(x.shape) > 1:
-		raise Exception('x should be a one dimensional array')
-
-	# TODO: create a proper function to find frequency, currently set by user
-	# period = frequency(x)
-
-	if period < 2 or n <= 2 * period:
-		raise Exception('Series is not periodic or has less than two periods')
-
-	s_degree = degCheck(s_degree)
-	t_degree = degCheck(t_degree)
-	l_degree = degCheck(l_degree)
-
-	output = "\nSTL PARAMETERS:\n"
-	output += "n: " + str(n) + "\t\t\t period: " + str(period) + "\n"
-	output += "s_window: " + str(s_window) + "\t t_window: " + str(t_window) + "\t l_window: " + str(l_window) + "\n"
-	output += "s_degree: " + str(s_degree) + "\t\t t_degree: " + str(t_degree) + "\t l_degree: " + str(l_degree) + "\n"
-	output += "s_jump: " + str(s_jump) + "\t t_jump: " + str(t_jump) + "\t l_jump: " + str(l_jump) + "\n"
-	output += "inner: " + str(inner) + "\t\t outer: " + str(outer) + "\n"
-
-	print output
-
-	season, trend, work, w = stl(y = x, n = n,
-			np = period, ns = s_window, nt= t_window, nl = l_window,
-			isdeg = s_degree, itdeg= t_degree, ildeg = l_degree,
-			nsjump = s_jump, ntjump = t_jump, nljump = l_jump,
-			ni = inner, no = outer,
-			season = numpy.zeros(n), trend = numpy.zeros(n), work = numpy.zeros((5,(n + 2 * period))))
-
-	return season, trend, work, w
 
 ################
 # Testing area #
@@ -670,28 +613,30 @@ y = numpy.array(
 	 360, 342, 406, 396, 420, 472, 548, 559, 463, 407, 362, 405,
 	 417, 391, 419, 461, 472, 535, 622, 606, 508, 461, 390, 432])
 
-season, trend, work, rw = stl(y, 144, 12, 1441, 19, 13, 0, 1, 1, 145, 2, 2, 2, 0,
-							  numpy.zeros(144), numpy.zeros(144), numpy.zeros((5,144 + 2 * 12)))
+# season, trend, work, rw = stl(y, 144, 12, 1441, 19, 13, 0, 1, 1, 145, 2, 2, 2, 0,
+# 							  numpy.zeros(144), numpy.zeros(144), numpy.zeros((5,144 + 2 * 12)))
 
-print stlfts(y, 144, 12, numpy.zeros(144), numpy.zeros(144))
+# print stlfts(y, 144, 12, numpy.zeros(144), numpy.zeros(144))
 
-season, trend, work, rw = STL(y, period = 12)
-
-subplot_num = 411
-# for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
-for i in [y, season, trend, y - season - trend]:
-	print i
-	pyplot.figure(1)
-	pyplot.subplot(subplot_num)
-	subplot_num += 1
-	pyplot.plot(i)
-
-print rw
-work_size = work.shape[0]
-
-for i in range(0,work_size):
-	pyplot.figure(2)
-	pyplot.subplot((work_size * 100) + 11 + i)
-	pyplot.plot(work[i])
-
+season_decomp = STL(x = y, period = 12)
+season_decomp.fit()
+season_decomp.generate_plot()
 pyplot.show()
+
+
+# subplot_num = 411
+# # for i in [y, season, trend, y - season[0:144] - trend[0:144]]:
+# for i in [y, season, trend, y - season - trend]:
+# 	pyplot.figure(1)
+# 	pyplot.subplot(subplot_num)
+# 	subplot_num += 1
+# 	pyplot.plot(i)
+#
+# work_size = work.shape[0]
+#
+# for i in range(0,work_size):
+# 	pyplot.figure(2)
+# 	pyplot.subplot((work_size * 100) + 11 + i)
+# 	pyplot.plot(work[i])
+#
+# pyplot.show()
