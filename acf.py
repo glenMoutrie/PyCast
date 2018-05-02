@@ -7,7 +7,7 @@ def acfCalc(x, lag_max, type):
 
 	if type == "partial":
 		# Match R functionality of pacf
-		print ""
+		print("")
 
 	# Get the shape dimesions
 	dim = x.shape
@@ -68,9 +68,6 @@ def acfCalc0(x, n, ns, nl, correlation) :
 
 	return acf.reshape((ns, ns, nl + 1))
 
-x = np.array((1,2,3,4,5,6))
-print acfCalc0(x, 3, 2, 2, False)
-print acfCalc0(x, 3, 2, 2, True)
 
 
 def acf(x, lag_max = None, type = ("correlation", "covariance", "partial"),
@@ -92,3 +89,8 @@ def acf(x, lag_max = None, type = ("correlation", "covariance", "partial"),
 
 
 	return acf_out
+
+if __name__ == "__main__":
+	x = np.array((1, 2, 3, 4, 5, 6))
+	print(acfCalc0(x, 3, 2, 2, False))
+	print(acfCalc0(x, 3, 2, 2, True))

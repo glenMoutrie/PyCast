@@ -1,100 +1,132 @@
-import numpy as np
 import pandas as pd
-from scipy import interpolate as interp
-from matplotlib import pyplot
+import numpy as np
+from enum import Enum
+from TimeSeriesOO.FrequencyEstimator import estimateFrequency
+
+class FileType(Enum):
+	CSV = 1
+	PANDAS_DF = 2
+	NUMPY_ARRAY = 3
+	UNSPECIFIED = 4
 
 class TimeSeries:
 
-	def __init__(self, csv_loc = None, series = None, column_ref = None, date_format = None, source = "csv"
-				 interpolation_method = interp.PchipInterpolator):
+	def __init__(self, data = None, freq = None, csv_dir = None, col_ref = None, date_format = "%Y-%m-%d", file_type = FileType.UNSPECIFIED):
 
-		get_from_csv = not csv_loc is None
-		get_from_csv = get_from_csv and not column_references is None
-		get_from_csv = get_from_csv and not date_format is None
+		self.data = data
+		self.csv_dir = csv_dir
+		self.col_ref = col_ref
+		self.date_format = date_format
+		self.file_type = file_type
+		self.freq = freq
 
-
-		if source == "csv":
-
-			if csv_loc is None:
-				pass
-
-			self.data = consumeTimeSeriesfromCSV(csv_loc,column_references,date_format)
-
-		self.checkTimeSeriesIsClean()
+		self.checkFileInput()
+		self.consumeData()
 
 
-	def print_details(self):
+	def __str__(self):
+		output = "TimeSeries(file_type = " + str(self.file_type.name) + ")"
+		output += "\nNumber of Observations: " + str(self.data.shape[0])
+		return output
 
-		output = "Number of observations: " + str(self.n) + "\n"
-		output += "Number of NaN values: " + str(self.total_missing) + "\n"
-		output += "Cleaned time series: " + str(self.clean) + "\n"
+	def __repr__(self):
+		return self.__str__()
 
-		print output
+	def consumeData(self):
 
-	def checkTimeSeriesIsClean(self):
+		if self.file_type == FileType.CSV:
+			self.consumeTimeSeriesFromCSV(self.csv_dir, self.col_ref, self.date_format)
 
-		self.total_missing = np.isnan(self.series).sum()
-		self.clean = self.total_missing == 0
+		elif self.file_type == FileType.NUMPY_ARRAY:
+			self.consumeTimeSeriesFromNumpy()
 
-	# TODO complete interpolation structure
-	def cleanSeries(self):
+	def canReadCSV(self):
 
-		self.clean = True
+		can_read = True
 
-	def plotTimeSeries(self):
-		self.plot = pyplot.figure(1)
-		self.plot = pyplot.plot(self.dates, self.series)
-		pyplot.show()
+		can_read &= isinstance(self.csv_dir, str)
+		can_read &= isinstance(self.col_ref, dict)
+
+		return can_read
+
+	def checkFileInput(self):
+
+		if self.file_type is FileType.UNSPECIFIED:
+
+			if isinstance(self.data, pd.DataFrame):
+				self.file_type = FileType.PANDAS_DF
+				return
+
+			elif isinstance(self.data, np.ndarray):
+				self.file_type = FileType.NUMPY_ARRAY
+				return
+
+			elif self.canReadCSV():
+				self.file_type = FileType.CSV
+				return
+
+			else:
+				raise ValueError("Unclear what data source to use. Check constructor inputs.")
+
+
+	def consumeTimeSeriesFromCSV(self, location, col_ref, date_format):
+		self.col_ref = col_ref
+
+		local = pd.read_csv(location, parse_dates=[col_ref['dates']], date_parser=lambda x: dateParser(x, date_format))
+
+		local = local.sort_values(col_ref['dates'])
+
+		local = local.dropna(subset=[col_ref['dates']])
+
+		self.data = local
+
+	def consumeTimeSeriesFromNumpy(self):
+		self.data = pd.DataFrame({"values": self.data})
+		self.col_ref = {'values': 'values'}
+
+	def getMetrics(self):
+		average_step = self.data[self.col_ref['dates']].diff()
+		print("Average Step = " + str(average_step.median()) + "\nSD Step = " + str(average_step.std()), "\n")
+
+	def plot(self):
+		pass
+
+	def getValues(self):
+		return self.data[self.col_ref["values"]].values
+
+	def getDates(self):
+		return self.data[self.col_ref["dates"]].values
+
+	def getFrequency(self):
+
+		if self.freq is None:
+			self.freq = estimateFrequency(self.getValues())
+
+		return self.freq
+
+
 
 
 def dateParser(x, date_format):
 
-    try:
-        x = pd.datetime.strptime(x, date_format)
+	try:
+		x = pd.datetime.strptime(x, date_format)
 
-    except ValueError:
-        x = None
+	except ValueError:
+		x = None
 
-    return x
-
-
-
-def consumeTimeSeriesfromCSV(location, col_ref, date_format):
-
-    local = pd.read_csv(location, parse_dates= [col_ref['dates']], date_parser= lambda x: dateParser(x, date_format))
-
-    local = local.sort_values(col_ref['dates'])
-
-    local = local.dropna(subset = [col_ref['dates']])
-
-    average_step = local[col_ref['dates']].diff()
-    print "Average Step = " + str(average_step.median()) + " SD Step = " + str(average_step.std())
-
-    return local
+	return x
 
 
-column_references = {'dates': "Month", 'values': 'Air_Passengers'}
-date_format = "%Y-%m-%d"
+if __name__ == "__main__":
 
-print consumeTimeSeriesfromCSV("~/PycharmProjects/PyCast/AirPassengers.csv",  column_references, date_format)
-print consumeTimeSeriesfromCSV("~/PycharmProjects/PyCast/AirPassengersMissingValues.csv",  column_references, date_format)
+	column_references = {'dates': "Month", 'values': 'Air_Passengers'}
+	date_format = "%Y-%m-%d"
 
+	TS = TimeSeries(csv_dir="~/PycharmProjects/PyCast/AirPassengers.csv",col_ref= column_references, date_format = date_format)
+	TS.getMetrics()
+	print(TS)
+	print(TS.getValues())
 
-test_data = pd.read_csv("~/PycharmProjects/PyCast/AirPassengers.csv")
-# print test_data
-# print test_data["Month"][:]
-# print test_data.as_matrix(["Month"])
-reference = {'date_index': "Month", 'series': "Air_Passengers"}
-
-test = TimeSeries(series = test_data, column_ref = reference)
-test.print_details()
-test.plotTimeSeries()
-
-sparse_data = pd.read_csv("~/PycharmProjects/PyCast/AirPassengersMissingValues.csv")
-test_sparse = TimeSeries(series = sparse_data, column_ref= reference)
-test_sparse.print_details()
-test_sparse.plotTimeSeries()
-
-
-
-print type(test_sparse.dates[0][0])
+	TS.consumeTimeSeriesfromCSV("~/PycharmProjects/PyCast/AirPassengersMissingValues.csv", column_references, date_format)
+	TS.getMetrics()

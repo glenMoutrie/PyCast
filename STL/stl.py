@@ -2,6 +2,9 @@ import numpy
 from matplotlib import pyplot
 from math import ceil
 from stl_helpers import *
+from TimeSeriesOO.TimeSeries import TimeSeries
+from TimeSeriesOO.FrequencyEstimator import estimateFrequency
+import warnings
 
 # double
 # precision
@@ -23,13 +26,22 @@ from stl_helpers import *
 
 class STL:
 
-	def __init__(self, x, period, s_window = None, s_degree = 0,t_window = None, t_degree = 1, l_window = None, l_degree = None,
+	def __init__(self, x, period = None, s_window = None, s_degree = 0,t_window = None, t_degree = 1, l_window = None, l_degree = None,
 		s_jump = None, t_jump = None, l_jump = None, robust = False, inner = None, outer = None, verbose = False):
 
 		# Set the parameters
-		self.x = x
-		self.n = x.shape[0]
-		self.period = period
+		if isinstance(x, TimeSeries):
+			self.x = x.getValues()
+			self.period = x.getFrequency()
+		else:
+
+			if period == None:
+				raise Exception("If x is not a TimeSeries object then a period value must be provided")
+
+			self.x = x
+			self.period = period
+
+		self.n = self.x.shape[0]
 		self.s_window = s_window
 		self.s_degree = s_degree
 		self.t_window = t_window
@@ -87,9 +99,6 @@ class STL:
 
 		if len(self.x.shape) > 1:
 			raise Exception('x should be a one dimensional array')
-
-		# TODO: create a proper function to find frequency, currently set by user
-		# period = frequency(x)
 
 		if self.period < 2 or self.n <= 2 * self.period:
 			raise Exception('Series is not periodic or has less than two periods')
@@ -313,7 +322,7 @@ def stless(y,n,len,ideg,njump, userw,rw,ys,res,ok = False):
 			for j in range(i + 1, i + newnj * 2):
 				ys[j] = ys[i] + delta * (j - i)
 
-		k = ((n - 1)/newnj) * newnj + 1
+		k = int((n - 1)/newnj) * newnj + 1
 
 		if not k == n - 1:
 			ys[i], ok = stlest(y = y, n = n, len = len, ideg = ideg, xs = n, ys = ys[i],
@@ -358,7 +367,7 @@ def stlss(y,n,np,ns,isdeg,nsjump,userw,rw,season,work1,work2,work3,work4, ok = F
 	for j in range(0, np):
 
 		# Number of occurances of this part of the season throughout the entire series
-		k = (n - j)/np + 1
+		k = int((n - j)/np + 1)
 
 		for i in range(0,k):
 			# Each i is one seasonal period
@@ -513,7 +522,7 @@ def stlrwt(y, n, fit, rw):
 
 	rw = numpy.abs(y - fit)
 
-	mid = [n/2 + 1, None]
+	mid = [int(n/2) + 1, None]
 	mid[1] = n - mid[0] + 1
 
 	# TODO use psort instead of .sort
@@ -521,7 +530,7 @@ def stlrwt(y, n, fit, rw):
 	rw.sort()
 
 	# 6((midpoint_1 + midpoint_2)/2)
-	cmad = 3.*(rw[mid[0]] + rw[mid[1]])
+	cmad = 3*(rw[mid[0]] + rw[mid[1]])
 
 	c_9 = 0.999*cmad
 	c_1 = 0.001*cmad
@@ -617,9 +626,13 @@ if __name__ == '__main__':
 
 	season_decomp = STL(x = y, period = 12)
 
-	print STL(x=y, period=12).__repr__()
+	season_decomp_TS = STL(TimeSeries(y))
+
+	print(season_decomp_TS)
 
 	season_decomp.fit()
-	season_decomp.generate_plot()
+	season_decomp_TS.fit()
+
+	season_decomp_TS.generate_plot()
 	pyplot.show()
 

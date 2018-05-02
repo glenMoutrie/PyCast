@@ -1,5 +1,44 @@
 import numpy
 
+#  Simple function to calculate the moving average of a function
+def stlma(x, n, len, ave):
+    newn = n - len + 1
+    flen = (len) * 1.
+    v = 0.
+
+    for i in range(0, len):
+        v += x[i]
+
+    ave[0] = v/flen
+
+    if newn > 1:
+        k = len - 1
+        m = -1
+        for j in range(1, newn):
+            k += 1
+            m += 1
+            v = v - x[m] + x[k]
+            ave[j] = v/flen
+
+    return ave
+
+
+def nextOdd(x):
+	x = round(x)
+
+	if x % 2 == 0:
+		x += 1
+
+	return x
+
+def degCheck(deg):
+	if deg < 0 or deg > 1:
+		raise Exception('Degrees must be 0 or 1')
+
+	return int(deg)
+
+
+# THE BELOW CODE IS NOT UTILISED, may finish for completeness but see how
 # Here psort is called such that psort(rw, n, mid, 2), where rw is the
 # absolute square loss (rw = abs(y - fit)), n is the size of the y vector, mid
 # is a integer array of length two where mid(1) = n/2+1, mid(2) = n - mid(1) + 1.
@@ -167,41 +206,3 @@ def psort(a, n, ind, ni):
     # goto 161
     # end outer loop
     return a
-
-
-#  Simple function to calculate the moving average of a function
-def stlma(x, n, len, ave):
-    newn = n - len + 1
-    flen = (len) * 1.
-    v = 0.
-
-    for i in range(0, len):
-        v += x[i]
-
-    ave[0] = v/flen
-
-    if newn > 1:
-        k = len - 1
-        m = -1
-        for j in range(1, newn):
-            k += 1
-            m += 1
-            v = v - x[m] + x[k]
-            ave[j] = v/flen
-
-    return ave
-
-
-def nextOdd(x):
-	x = round(x)
-
-	if x % 2 == 0:
-		x += 1
-
-	return x
-
-def degCheck(deg):
-	if deg < 0 or deg > 1:
-		raise Exception('Degrees must be 0 or 1')
-
-	return int(deg)
