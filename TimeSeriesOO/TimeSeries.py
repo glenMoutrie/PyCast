@@ -1,7 +1,12 @@
 import pandas as pd
 import numpy as np
+
 from enum import Enum
+from functools import partial
+from math import log
+
 from TimeSeriesOO.FrequencyEstimator import estimateFrequency
+from TimeSeriesOO import Transformations as T
 
 class FileType(Enum):
 	CSV = 1
@@ -9,9 +14,15 @@ class FileType(Enum):
 	NUMPY_ARRAY = 3
 	UNSPECIFIED = 4
 
+class Transform(Enum):
+	BOXCOX = partial(T.boxCox)
+	NORMALISE = partial(T.normalize)
+	LOG = partial(log)
+
 class TimeSeries:
 
-	def __init__(self, data = None, freq = None, csv_dir = None, col_ref = None, date_format = "%Y-%m-%d", file_type = FileType.UNSPECIFIED):
+	def __init__(self, data = None, freq = None, csv_dir = None, col_ref = None,
+				 date_format = "%Y-%m-%d", file_type = FileType.UNSPECIFIED):
 
 		self.data = data
 		self.csv_dir = csv_dir
@@ -20,8 +31,11 @@ class TimeSeries:
 		self.file_type = file_type
 		self.freq = freq
 
+		self.n = None
+
 		self.checkFileInput()
 		self.consumeData()
+
 
 
 	def __str__(self):
@@ -39,6 +53,20 @@ class TimeSeries:
 
 		elif self.file_type == FileType.NUMPY_ARRAY:
 			self.consumeTimeSeriesFromNumpy()
+
+	def transform(self, type, lam = None):
+		fun = Transform[type].value
+
+		if type == "BOXCOX":
+
+			if lam is None:
+				lam = 0
+
+			self.data[self.col_ref["values"]] = self.data[self.col_ref["values"]].apply(fun, args = (lam,))
+
+		else:
+
+			self.data[self.col_ref["values"]] = self.data[self.col_ref["values"]].apply(fun)
 
 	def canReadCSV(self):
 
@@ -97,6 +125,13 @@ class TimeSeries:
 	def getDates(self):
 		return self.data[self.col_ref["dates"]].values
 
+	def getSeriesLength(self):
+
+		if self.n is None:
+			self.n = self.data.shape[0]
+
+		return self.n
+
 	def getFrequency(self):
 
 		if self.freq is None:
@@ -125,8 +160,14 @@ if __name__ == "__main__":
 
 	TS = TimeSeries(csv_dir="~/PycharmProjects/PyCast/AirPassengers.csv",col_ref= column_references, date_format = date_format)
 	TS.getMetrics()
+	print(TS.getSeriesLength())
+
 	print(TS)
 	print(TS.getValues())
 
-	TS.consumeTimeSeriesfromCSV("~/PycharmProjects/PyCast/AirPassengersMissingValues.csv", column_references, date_format)
+
+	TS.transform("BOXCOX")
+	print(TS.getValues())
+
+	TS.consumeTimeSeriesFromCSV("~/PycharmProjects/PyCast/AirPassengersMissingValues.csv", column_references, date_format)
 	TS.getMetrics()

@@ -1,10 +1,10 @@
 import numpy
 from matplotlib import pyplot
+
 from math import ceil
+
 from stl_helpers import *
 from TimeSeriesOO.TimeSeries import TimeSeries
-from TimeSeriesOO.FrequencyEstimator import estimateFrequency
-import warnings
 
 # double
 # precision
